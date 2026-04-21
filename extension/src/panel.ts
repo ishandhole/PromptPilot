@@ -94,6 +94,11 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                     this._view?.webview.postMessage({ command: 'showSetup' });
                     vscode.window.showInformationMessage('PromptPilot: API key cleared.');
                     break;
+                case 'openInstallPage':
+                    vscode.env.openExternal(
+                        vscode.Uri.parse('https://github.com/ishandhole/PromptPilot/releases')
+                    );
+                    break;
             }
         });
 
@@ -298,6 +303,42 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         });
     }
 
+    // ── Browser connection check ──────────────────────────────────────────────
+
+    private _checkBrowserConnection(channelId: string) {
+        const https = require('https');
+        const body = JSON.stringify({ channel_id: channelId, prompt: '__ping__' });
+        const options = {
+            hostname: 'promptpilot-api.onrender.com',
+            path: '/send',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
+            },
+            timeout: 5000
+        };
+
+        const req = https.request(options, (res: any) => {
+            let data = '';
+            res.on('data', (chunk: Buffer) => data += chunk.toString());
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(data);
+                    const connected = parsed.status === 'sent';
+                    this._view?.webview.postMessage({
+                        command: 'browserStatus',
+                        connected
+                    });
+                } catch { }
+            });
+        });
+
+        req.on('error', () => { });
+        req.write(body);
+        req.end();
+    }
+
     // ── Main backend call — now uses hosted server ────────────────────────────
 
     private async _runBackend(userPrompt: string, currentFile: string, attachments: any[] = []) {
@@ -337,6 +378,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 prompt: refined
             });
 
+            // Check if browser extension is connected
+            if (apiKey) {
+                const channelId = getChannelId(apiKey);
+                this._checkBrowserConnection(channelId);
+            }
+
             // Save to session memory in VS Code storage
             const existingHistory = this._loadHistory(currentFile);
             existingHistory.push({
@@ -365,13 +412,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     private async _sendPrompt(text: string) {
         const apiKey = await getApiKey(this._context) || '';
-        const sent = await sendToIDEAgent(text, apiKey);
-        if (!sent) {
-            await vscode.env.clipboard.writeText(text);
-            vscode.window.showInformationMessage(
-                'PromptPilot: Prompt copied to clipboard. Paste it into your AI agent.'
-            );
-        }
+        await sendToIDEAgent(text, apiKey);
+        // Clipboard is always set as fallback in sendToIDEAgent
     }
 
     private _getHtml(): string {
@@ -509,6 +551,38 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             min-width: 0;
             flex: 1;
         }
+
+        .browser-status-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .browser-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .browser-dot.connected { background: var(--success); }
+        .browser-dot.disconnected { background: var(--danger); }
+
+        #install-browser-link {
+            color: var(--accent);
+            font-size: 10px;
+            margin-left: auto;
+            text-decoration: none;
+        }
+
+        #install-browser-link:hover { text-decoration: underline; }
 
         textarea, input[type="password"], input[type="text"] {
             width: 100%;
@@ -835,6 +909,13 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 <span class="file-name" id="current-file">Detecting...</span>
             </div>
 
+            <!-- Browser connection status -->
+            <div id="browser-status-row" class="browser-status-row" style="display:none">
+                <div class="browser-dot" id="browser-dot"></div>
+                <span class="browser-status-text" id="browser-status-text">Checking browser...</span>
+                <a href="#" id="install-browser-link" style="display:none">Install</a>
+            </div>
+
             <div>
                 <div class="label">Your Prompt</div>
                 <textarea id="user-prompt" placeholder="Describe what you want... e.g. fix the auth bug, make a DBMS project, add error handling"></textarea>
@@ -1069,6 +1150,27 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 case 'indexingDone':
                     showStatus('Project files read automatically each time.', 'success', false);
                     setTimeout(hideStatus, 3000);
+                    break;
+                case 'browserStatus':
+                    const browserRow = document.getElementById('browser-status-row');
+                    const browserDot = document.getElementById('browser-dot');
+                    const browserText = document.getElementById('browser-status-text');
+                    const installLink = document.getElementById('install-browser-link');
+
+                    browserRow.style.display = 'flex';
+
+                    if (message.connected) {
+                        browserDot.className = 'browser-dot connected';
+                        browserText.textContent = 'Browser extension connected';
+                        installLink.style.display = 'none';
+                    } else {
+                        browserDot.className = 'browser-dot disconnected';
+                        browserText.textContent = 'Browser extension not connected';
+                        installLink.style.display = 'block';
+                        installLink.onclick = () => {
+                            vscode.postMessage({ command: 'openInstallPage' });
+                        };
+                    }
                     break;
             }
         });

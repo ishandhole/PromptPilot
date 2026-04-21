@@ -1,9 +1,10 @@
 {
-  "name": "prompt-engineer",
-  "displayName": "PromptPilot",
+  "name": "promptpilot-ishan",
+  "displayName": "PromptPilot-IDE",
   "description": "AI prompt engineering layer for IDE coding agents — works across VS Code, Cursor, Windsurf and all Chromium browsers",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "publisher": "ishandhole",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/ishandhole/PromptPilot.git"
@@ -32,6 +33,7 @@
     "views": {
       "prompt-engineer": [
         {
+          "icon": "icon.svg",
           "type": "webview",
           "id": "promptEngineer.sidebar",
           "name": "PromptPilot"
