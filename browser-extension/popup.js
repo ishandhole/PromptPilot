@@ -1,61 +1,26 @@
-const SERVER = 'https://promptpilot-api.onrender.com';
-
-async function deriveChannelId(apiKey) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(apiKey);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function init() {
+chrome.storage.local.get(['channelId', 'connected'], (result) => {
     const statusEl = document.getElementById('status');
-    const result = await chrome.storage.local.get(['channelId', 'connected']);
+    const setupBtn = document.getElementById('setup-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
 
     if (result.channelId && result.connected) {
-        showConnected();
+        statusEl.textContent = '✅ Connected — ready to receive prompts';
+        statusEl.className = 'status connected';
+        disconnectBtn.style.display = 'block';
     } else {
-        showSetup();
-    }
-}
-
-function showConnected() {
-    document.getElementById('status').textContent = '✅ Connected — ready to receive prompts';
-    document.getElementById('status').className = 'status connected';
-    document.getElementById('setup-view').style.display = 'none';
-    document.getElementById('connected-view').style.display = 'block';
-}
-
-function showSetup() {
-    document.getElementById('status').textContent = 'Enter your API key to connect';
-    document.getElementById('status').className = 'status disconnected';
-    document.getElementById('setup-view').style.display = 'block';
-    document.getElementById('connected-view').style.display = 'none';
-}
-
-document.getElementById('connect-btn').addEventListener('click', async () => {
-    const apiKey = document.getElementById('api-key-input').value.trim();
-    if (!apiKey) return;
-
-    const statusEl = document.getElementById('status');
-    statusEl.textContent = 'Connecting...';
-    statusEl.className = 'status disconnected';
-
-    try {
-        const channelId = await deriveChannelId(apiKey);
-        await chrome.storage.local.set({ channelId, connected: true });
-        chrome.runtime.sendMessage({ type: 'setChannelId', channelId });
-        showConnected();
-    } catch (e) {
-        statusEl.textContent = 'Failed to connect. Try again.';
-        statusEl.className = 'status error';
+        statusEl.textContent = '⚡ Not connected — enter your API key to connect';
+        statusEl.className = 'status disconnected';
+        setupBtn.style.display = 'block';
     }
 });
 
-document.getElementById('disconnect-btn').addEventListener('click', async () => {
-    await chrome.storage.local.remove(['channelId', 'connected']);
-    chrome.runtime.sendMessage({ type: 'disconnect' });
-    showSetup();
+document.getElementById('setup-btn').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('setup.html') });
 });
 
-init();
+document.getElementById('disconnect-btn').addEventListener('click', () => {
+    chrome.storage.local.remove(['channelId', 'connected'], () => {
+        chrome.runtime.sendMessage({ type: 'disconnect' });
+        window.close();
+    });
+});

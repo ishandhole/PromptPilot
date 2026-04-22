@@ -4,6 +4,15 @@ let channelId = null;
 
 const WS_SERVER = 'wss://promptpilot-api.onrender.com';
 
+// Auto-open setup page when extension is first installed
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') {
+        chrome.tabs.create({
+            url: chrome.runtime.getURL('setup.html')
+        });
+    }
+});
+
 // Load channel ID from storage on startup
 chrome.storage.local.get(['channelId', 'connected'], (result) => {
     if (result.channelId && result.connected) {
@@ -63,7 +72,9 @@ function connect() {
                                 prompt: data.prompt
                             }, (response) => {
                                 if (chrome.runtime.lastError) {
-                                    console.log('PromptPilot: Could not reach content script');
+                                    console.log('PromptPilot: Could not reach content script on this tab');
+                                } else {
+                                    console.log('PromptPilot: Prompt delivered');
                                 }
                             });
                         }

@@ -4,109 +4,110 @@
 <head>
     <meta charset="UTF-8">
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            width: 300px;
+            width: 280px;
             padding: 16px;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 13px;
-            color: #333;
-            background: #fff;
+            color: #e2e8f0;
+            background: #0f172a;
         }
 
-        h2 {
-            font-size: 15px;
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: #3b82f6;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon svg {
+            width: 12px;
+            height: 12px;
+            fill: white;
+        }
+
+        .logo-text {
+            font-size: 14px;
             font-weight: 600;
-            margin-bottom: 12px;
+            color: #f1f5f9;
         }
 
         .status {
             padding: 8px 12px;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 12px;
             margin-bottom: 12px;
         }
 
         .status.connected {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: #10b981;
         }
 
         .status.disconnected {
-            background: #fff3cd;
-            color: #856404;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
         }
 
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .section {
-            margin-top: 12px;
-        }
-
-        .section-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-
-        input {
-            width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        p {
             font-size: 12px;
-            box-sizing: border-box;
-            margin-bottom: 6px;
+            color: #94a3b8;
+            line-height: 1.5;
+            margin-bottom: 12px;
         }
 
         button {
             width: 100%;
-            padding: 7px;
-            background: #3b82f6;
-            color: white;
+            padding: 8px;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 12px;
             font-weight: 500;
             margin-bottom: 6px;
         }
 
-        button:hover {
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
             background: #2563eb;
         }
 
         .btn-secondary {
-            background: #f3f4f6;
-            color: #374151;
-            border: 1px solid #d1d5db;
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .btn-secondary:hover {
-            background: #e5e7eb;
-        }
-
-        .help-text {
-            font-size: 11px;
-            color: #888;
-            line-height: 1.5;
-            margin-top: 6px;
-        }
-
-        .help-text a {
-            color: #3b82f6;
-            text-decoration: none;
+            background: rgba(255, 255, 255, 0.08);
         }
 
         .sites {
-            margin-top: 12px;
+            margin-top: 10px;
             font-size: 11px;
-            color: #888;
+            color: #64748b;
         }
 
         .sites ul {
@@ -117,49 +118,40 @@
         .sites li {
             margin-bottom: 2px;
         }
-
-        #connected-view {
-            display: none;
-        }
-
-        #setup-view {
-            display: block;
-        }
     </style>
 </head>
 
 <body>
-    <h2>⚡ PromptPilot</h2>
-
-    <div class="status" id="status">Checking...</div>
-
-    <!-- Setup view — shown when not connected -->
-    <div id="setup-view">
-        <div class="section">
-            <div class="section-title">Your Gemini API Key</div>
-            <input type="password" id="api-key-input" placeholder="AIzaSy..." />
-            <button id="connect-btn">Connect</button>
-            <div class="help-text">
-                Same key you entered in VS Code.
-                Get one free at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a>
-            </div>
+    <div class="logo">
+        <div class="logo-icon">
+            <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+                <path d="M7 1L2 7h4l-1 4 5-6H6l1-4z" />
+            </svg>
         </div>
+        <span class="logo-text">PromptPilot</span>
     </div>
 
-    <!-- Connected view — shown when connected -->
-    <div id="connected-view">
-        <div class="sites">
-            <strong>Auto-paste works on:</strong>
-            <ul>
-                <li>Claude.ai</li>
-                <li>ChatGPT</li>
-                <li>Gemini</li>
-                <li>Perplexity</li>
-            </ul>
-        </div>
-        <div class="section">
-            <button class="btn-secondary" id="disconnect-btn">Disconnect</button>
-        </div>
+    <div class="status" id="status">Checking connection...</div>
+
+    <p id="desc">When you click <strong>Browser Agent</strong> in VS Code, your engineered prompt will automatically
+        appear in the active AI tool.</p>
+
+    <button class="btn-primary" id="setup-btn" style="display:none">
+        Connect API Key
+    </button>
+
+    <button class="btn-secondary" id="disconnect-btn" style="display:none">
+        Disconnect
+    </button>
+
+    <div class="sites">
+        <strong>Supported:</strong>
+        <ul>
+            <li>Claude.ai</li>
+            <li>ChatGPT</li>
+            <li>Gemini</li>
+            <li>Perplexity</li>
+        </ul>
     </div>
 
     <script src="popup.js"></script>

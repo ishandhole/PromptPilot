@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { SidebarPanel } from './panel';
 
 export const SERVER_URL = 'https://promptpilot-api.onrender.com';
-export const BROWSER_EXTENSION_URL = 'https://github.com/ishandhole/PromptPilot/releases';
+export const BROWSER_EXTENSION_URL = 'https://github.com/ishandhole/PromptPilot/releases/tag/v0.0.1';
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('PromptPilot extension activated');
@@ -47,37 +47,15 @@ export function getChannelId(apiKey: string): string {
 	return crypto.createHash('sha256').update(apiKey).digest('hex');
 }
 
-export async function sendToIDEAgent(text: string, apiKey: string): Promise<boolean> {
+export async function sendToIDEOnly(text: string): Promise<boolean> {
+	// Only sends to IDE agent — never to browser
 	await vscode.env.clipboard.writeText(text);
 
-	// Try to send to browser extension via hosted server
-	if (apiKey) {
-		const channelId = getChannelId(apiKey);
-		const browserResult = await sendToBrowserViaServer(channelId, text);
-
-		if (!browserResult) {
-			// No browser extension connected — show install prompt
-			const action = await vscode.window.showInformationMessage(
-				'PromptPilot: No browser extension connected. Install it to auto-paste into Claude, ChatGPT, and Gemini.',
-				'Install Browser Extension',
-				'Use Clipboard Instead'
-			);
-
-			if (action === 'Install Browser Extension') {
-				vscode.env.openExternal(vscode.Uri.parse(BROWSER_EXTENSION_URL));
-			}
-		} else {
-			vscode.window.showInformationMessage(
-				'PromptPilot: Prompt sent to your browser AI tool.'
-			);
-		}
-	}
-
-	// Try IDE agent commands
 	try {
 		await vscode.commands.executeCommand('aichat.newchataction');
 		await new Promise(resolve => setTimeout(resolve, 500));
 		await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+		vscode.window.showInformationMessage('PromptPilot: Prompt sent to IDE agent.');
 		return true;
 	} catch { }
 
@@ -85,18 +63,57 @@ export async function sendToIDEAgent(text: string, apiKey: string): Promise<bool
 		await vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
 		await new Promise(resolve => setTimeout(resolve, 500));
 		await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+		vscode.window.showInformationMessage('PromptPilot: Prompt sent to Copilot chat.');
 		return true;
 	} catch { }
 
 	try {
 		await vscode.commands.executeCommand('workbench.action.chat.open', { query: text });
+		vscode.window.showInformationMessage('PromptPilot: Prompt sent to IDE agent.');
 		return true;
 	} catch { }
+
+	// No IDE agent found
+	vscode.window.showWarningMessage(
+		'PromptPilot: No IDE agent found. Prompt copied to clipboard.'
+	);
+	return false;
+}
+
+export async function sendToBrowserOnly(text: string, apiKey: string): Promise<boolean> {
+	// Only sends to browser extension — never to IDE
+	await vscode.env.clipboard.writeText(text);
+
+	if (!apiKey) {
+		vscode.window.showWarningMessage('PromptPilot: No API key set.');
+		return false;
+	}
+
+	const channelId = getChannelId(apiKey);
+	const browserResult = await sendToBrowserViaServer(channelId, text);
+
+	if (browserResult) {
+		vscode.window.showInformationMessage(
+			'PromptPilot: Prompt sent to your browser AI tool.'
+		);
+		return true;
+	}
+
+	// Browser extension not connected
+	const action = await vscode.window.showWarningMessage(
+		'PromptPilot: Browser extension not connected. Install it to auto-paste into Claude, ChatGPT, and Gemini.',
+		'Install Browser Extension',
+		'Use Clipboard Instead'
+	);
+
+	if (action === 'Install Browser Extension') {
+		vscode.env.openExternal(vscode.Uri.parse(BROWSER_EXTENSION_URL));
+	}
 
 	return false;
 }
 
-function sendToBrowserViaServer(channelId: string, prompt: string): Promise<boolean> {
+export function sendToBrowserViaServer(channelId: string, prompt: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const body = JSON.stringify({ channel_id: channelId, prompt });
 		const serverUrl = new URL(SERVER_URL);
@@ -118,7 +135,6 @@ function sendToBrowserViaServer(channelId: string, prompt: string): Promise<bool
 			res.on('end', () => {
 				try {
 					const parsed = JSON.parse(data);
-					// Returns true only if browser extension received it
 					resolve(parsed.status === 'sent');
 				} catch {
 					resolve(false);

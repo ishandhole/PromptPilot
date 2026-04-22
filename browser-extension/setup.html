@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>PromptPilot Setup</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: #3b82f6;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon svg {
+            width: 20px;
+            height: 20px;
+            fill: white;
+        }
+
+        .logo-text {
+            font-size: 22px;
+            font-weight: 700;
+            color: #f1f5f9;
+        }
+
+        .logo-badge {
+            font-size: 11px;
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            padding: 2px 8px;
+            border-radius: 20px;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 8px;
+        }
+
+        p {
+            font-size: 14px;
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        input {
+            width: 100%;
+            background: #0f172a;
+            color: #f1f5f9;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+            transition: border-color 0.15s;
+        }
+
+        input:focus {
+            border-color: #3b82f6;
+        }
+
+        input::placeholder {
+            color: #475569;
+        }
+
+        button {
+            width: 100%;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            background: #2563eb;
+        }
+
+        .status {
+            margin-top: 16px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .status.success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            display: block;
+        }
+
+        .status.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            display: block;
+        }
+
+        .help {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.6;
+        }
+
+        .help a {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+
+        .help a:hover {
+            text-decoration: underline;
+        }
+
+        .sites {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #1e293b;
+        }
+
+        .sites-title {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 8px;
+        }
+
+        .sites-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .site-tag {
+            font-size: 11px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 3px 10px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div class="logo">
+            <div class="logo-icon">
+                <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M7 1L2 7h4l-1 4 5-6H6l1-4z" />
+                </svg>
+            </div>
+            <span class="logo-text">PromptPilot</span>
+            <span class="logo-badge">Browser</span>
+        </div>
+
+        <h2>Connect to VS Code</h2>
+        <p>
+            Enter your Gemini API key to link this browser extension
+            with the PromptPilot VS Code extension. Use the same key
+            you entered in VS Code.
+        </p>
+
+        <div class="label">Gemini API Key</div>
+        <input type="password" id="api-key-input" placeholder="AIzaSy..." />
+
+        <button id="connect-btn">Connect</button>
+
+        <div class="status" id="status"></div>
+
+        <div class="help">
+            Don't have a key? Get one free at
+            <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a>
+            — no credit card required.
+        </div>
+
+        <div class="sites">
+            <div class="sites-title">Auto-paste works on:</div>
+            <div class="sites-list">
+                <span class="site-tag">Claude.ai</span>
+                <span class="site-tag">ChatGPT</span>
+                <span class="site-tag">Gemini</span>
+                <span class="site-tag">Perplexity</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function deriveChannelId(apiKey) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(apiKey);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Check if already connected
+        chrome.storage.local.get(['channelId', 'connected'], (result) => {
+            if (result.channelId && result.connected) {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = '✅ Already connected! You can close this tab.';
+                statusEl.className = 'status success';
+            }
+        });
+
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+            const apiKey = document.getElementById('api-key-input').value.trim();
+            const statusEl = document.getElementById('status');
+
+            if (!apiKey) {
+                statusEl.textContent = 'Please enter your API key.';
+                statusEl.className = 'status error';
+                return;
+            }
+
+            if (!apiKey.startsWith('AIza')) {
+                statusEl.textContent = 'That does not look like a valid Gemini API key. It should start with AIza.';
+                statusEl.className = 'status error';
+                return;
+            }
+
+            try {
+                const channelId = await deriveChannelId(apiKey);
+                await chrome.storage.local.set({ channelId, connected: true });
+                chrome.runtime.sendMessage({ type: 'setChannelId', channelId });
+
+                statusEl.textContent = '✅ Connected! PromptPilot will now auto-paste prompts into your browser AI tools.';
+                statusEl.className = 'status success';
+
+                document.getElementById('api-key-input').value = '';
+
+            } catch (e) {
+                statusEl.textContent = 'Something went wrong. Please try again.';
+                statusEl.className = 'status error';
+            }
+        });
+
+        document.getElementById('api-key-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('connect-btn').click();
+        });
+    </script>
+</body>
+
+</html>

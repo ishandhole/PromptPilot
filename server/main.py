@@ -1,14 +1,12 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from google import genai
 from google.genai import errors
 from google.genai import types
 import base64
-import os
-import re
 import hashlib
-import asyncio
 from typing import Optional, Dict, Set
 
 app = FastAPI(title="PromptPilot API")
@@ -24,7 +22,6 @@ app.add_middleware(
 
 class ChannelManager:
     def __init__(self):
-        # channel_id -> set of connected WebSocket clients
         self.channels: Dict[str, Set[WebSocket]] = {}
 
     async def connect(self, channel_id: str, websocket: WebSocket):
@@ -41,18 +38,23 @@ class ChannelManager:
                 del self.channels[channel_id]
         print(f"Client disconnected from channel {channel_id[:8]}...")
 
-    async def broadcast(self, channel_id: str, message: dict):
+    def has_clients(self, channel_id: str) -> bool:
+        return channel_id in self.channels and len(self.channels[channel_id]) > 0
+
+    async def broadcast(self, channel_id: str, message: dict) -> bool:
         if channel_id not in self.channels:
             return False
         disconnected = set()
+        sent = False
         for websocket in self.channels[channel_id]:
             try:
                 await websocket.send_json(message)
+                sent = True
             except Exception:
                 disconnected.add(websocket)
         for ws in disconnected:
             self.channels[channel_id].discard(ws)
-        return True
+        return sent
 
 manager = ChannelManager()
 
@@ -91,9 +93,9 @@ and include them in the refined prompt.
 Rules:
 - Be specific about what needs to be built or changed
 - Include relevant constraints (language, framework, patterns)
-- Scope the task clearly — not too broad, not too narrow
+- Scope the task clearly - not too broad, not too narrow
 - Preserve the original intent exactly
-- Never ask clarifying questions — make reasonable assumptions and state them explicitly
+- Never ask clarifying questions - make reasonable assumptions and state them explicitly
 - Output only the rewritten prompt, nothing else
 """
 
@@ -134,9 +136,9 @@ For general prompts:
 CLASSIFICATION_PROMPT = """
 You are a prompt classifier. Given a developer's instruction, classify it into one of three types:
 
-1. "coding" — modifying, fixing, or building on existing code in a project
-2. "project" — creating something new from scratch that needs planning, architecture, or documents like PRDs
-3. "general" — questions, explanations, research, or tasks unrelated to a specific codebase
+1. "coding" - modifying, fixing, or building on existing code in a project
+2. "project" - creating something new from scratch that needs planning, architecture, or documents like PRDs
+3. "general" - questions, explanations, research, or tasks unrelated to a specific codebase
 
 Return only one word: coding, project, or general.
 """
@@ -236,16 +238,32 @@ def rewrite_prompt_logic(user_input, context, attachments, client, prompt_type=N
 
     raise Exception(f"All models failed. Last error: {last_error}")
 
+
 # ── API Routes ────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "1.0.0"}
+    return JSONResponse(
+        content={"status": "ok", "version": "1.0.0"},
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )
 
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    return JSONResponse(
+        content={"status": "healthy"},
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )
+
+
+@app.get("/channel/{api_key}")
+def get_channel_id(api_key: str):
+    channel_id = hashlib.sha256(api_key.encode()).hexdigest()
+    return JSONResponse(
+        content={"channel_id": channel_id},
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )
 
 
 @app.post("/engineer")
@@ -276,37 +294,25 @@ async def engineer_prompt(request: EngineerRequest):
             client=client,
             prompt_type=request.prompt_type
         )
-        return {
-            "refined_prompt": refined,
-            "prompt_type": prompt_type,
-            "status": "success"
-        }
+        # Use JSONResponse with explicit UTF-8 to fix latin-1 encoding errors
+        return JSONResponse(
+            content={
+                "refined_prompt": refined,
+                "prompt_type": prompt_type,
+                "status": "success"
+            },
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/channel/{api_key}")
-def get_channel_id(api_key: str):
-    """
-    Returns a unique channel ID derived from the user's API key.
-    The channel ID is a hash — the original API key is never stored.
-    """
-    channel_id = hashlib.sha256(api_key.encode()).hexdigest()
-    return {"channel_id": channel_id}
-
-
 @app.websocket("/ws/{channel_id}")
 async def websocket_endpoint(websocket: WebSocket, channel_id: str):
-    """
-    WebSocket endpoint for browser extension communication.
-    Each user has their own private channel identified by channel_id.
-    """
     await manager.connect(channel_id, websocket)
     try:
         while True:
-            # Keep connection alive and handle incoming messages
             data = await websocket.receive_text()
-            # Echo back to confirm receipt
             await websocket.send_json({"type": "ack"})
     except WebSocketDisconnect:
         manager.disconnect(channel_id, websocket)
@@ -314,14 +320,21 @@ async def websocket_endpoint(websocket: WebSocket, channel_id: str):
 
 @app.post("/send")
 async def send_to_channel(request: SendToChannelRequest):
-    """
-    Sends a prompt to all browser extension clients connected to a channel.
-    Called by the VS Code extension when user clicks Send to Agent.
-    """
+    # Handle ping — just check if clients are connected, don't broadcast
+    if request.prompt == "__ping__":
+        has_clients = manager.has_clients(request.channel_id)
+        return JSONResponse(
+            content={"status": "sent" if has_clients else "no_clients"},
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
+
+    # Real prompt — broadcast to browser extension
     success = await manager.broadcast(
         request.channel_id,
         {"type": "prompt", "prompt": request.prompt}
     )
-    if not success:
-        return {"status": "no_clients", "message": "No browser extension connected to this channel"}
-    return {"status": "sent"}
+
+    return JSONResponse(
+        content={"status": "sent" if success else "no_clients"},
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )

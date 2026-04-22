@@ -2,7 +2,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
-import { sendToIDEAgent, getApiKey, getChannelId, SERVER_URL } from './extension';
+import {
+    sendToIDEOnly,
+    sendToBrowserOnly,
+    sendToBrowserViaServer,
+    getChannelId,
+    getApiKey,
+    SERVER_URL,
+    BROWSER_EXTENSION_URL
+} from './extension';
 
 interface HistoryEntry {
     prompt: string;
@@ -38,6 +46,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         const apiKey = await getApiKey(this._context);
         if (apiKey) {
             this._view?.webview.postMessage({ command: 'showMain' });
+            const channelId = getChannelId(apiKey);
+            this._checkBrowserConnection(channelId);
         } else {
             this._view?.webview.postMessage({ command: 'showSetup' });
         }
@@ -49,11 +59,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken
     ) {
         this._view = webviewView;
-
-        webviewView.webview.options = {
-            enableScripts: true
-        };
-
+        webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtml();
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -62,6 +68,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                     await this._context.secrets.store('geminiApiKey', message.key);
                     vscode.window.showInformationMessage('PromptPilot: API key saved.');
                     this._view?.webview.postMessage({ command: 'showMain' });
+                    const newApiKey = message.key;
+                    const newChannelId = getChannelId(newApiKey);
+                    this._checkBrowserConnection(newChannelId);
                     break;
                 case 'engineerPrompt':
                     await this._runBackend(
@@ -70,8 +79,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                         message.attachments || []
                     );
                     break;
-                case 'acceptPrompt':
-                    await this._sendPrompt(message.refinedPrompt);
+                case 'sendToIDE':
+                    await sendToIDEOnly(message.refinedPrompt);
+                    break;
+                case 'sendToBrowser':
+                    const apiKey = await getApiKey(this._context) || '';
+                    await sendToBrowserOnly(message.refinedPrompt, apiKey);
                     break;
                 case 'copyPrompt':
                     await vscode.env.clipboard.writeText(message.refinedPrompt);
@@ -95,40 +108,19 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                     vscode.window.showInformationMessage('PromptPilot: API key cleared.');
                     break;
                 case 'openInstallPage':
-                    vscode.env.openExternal(
-                        vscode.Uri.parse('https://github.com/ishandhole/PromptPilot/releases')
-                    );
+                    vscode.env.openExternal(vscode.Uri.parse(BROWSER_EXTENSION_URL));
+                    break;
+                case 'checkBrowserConnection':
+                    const key = await getApiKey(this._context);
+                    if (key) {
+                        this._checkBrowserConnection(getChannelId(key));
+                    }
                     break;
             }
         });
 
         this._sendCurrentFile();
         this._updateView();
-
-        // Send channel ID to browser extension on startup
-        this._syncChannelId();
-    }
-
-    private async _syncChannelId() {
-        const apiKey = await getApiKey(this._context);
-        if (!apiKey) return;
-
-        const channelId = getChannelId(apiKey);
-
-        // Send channel ID to browser extension via a small local broadcast
-        // We use a temp WebSocket connection to localhost to check if old ws_server is running
-        // If not, we rely entirely on the hosted server
-        try {
-            const WebSocket = require('ws');
-            const ws = new WebSocket('ws://localhost:54321');
-            ws.on('open', () => {
-                ws.send(JSON.stringify({ type: 'setChannelId', channelId }));
-                ws.close();
-            });
-            ws.on('error', () => {
-                // Local server not running — browser extension connects directly to hosted server
-            });
-        } catch { }
     }
 
     private _sendCurrentFile() {
@@ -136,14 +128,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         const currentFile = editor
             ? path.basename(editor.document.fileName)
             : 'No file open';
-
-        this._view?.webview.postMessage({
-            command: 'currentFile',
-            file: currentFile
-        });
+        this._view?.webview.postMessage({ command: 'currentFile', file: currentFile });
     }
-
-    // ── Local file reading ────────────────────────────────────────────────────
 
     private _getWorkspacePath(): string | null {
         const folders = vscode.workspace.workspaceFolders;
@@ -152,7 +138,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     private _getProjectStructure(rootDir: string): string {
         const lines: string[] = [];
-
         const walk = (dir: string, level: number) => {
             if (level > 4) return;
             try {
@@ -169,7 +154,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 }
             } catch { }
         };
-
         lines.push(path.basename(rootDir) + '/');
         walk(rootDir, 1);
         return lines.join('\n');
@@ -179,7 +163,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         try {
             const stat = fs.statSync(filePath);
             if (stat.size > MAX_FILE_SIZE) {
-                return `[File too large to include — ${Math.round(stat.size / 1024)}KB]`;
+                return `[File too large — ${Math.round(stat.size / 1024)}KB]`;
             }
             return fs.readFileSync(filePath, 'utf8');
         } catch {
@@ -193,13 +177,11 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
         const parts: string[] = [];
 
-        // Project structure
         try {
             const structure = this._getProjectStructure(workspacePath);
             parts.push(`--- Project Structure ---\n${structure}`);
         } catch { }
 
-        // Config files
         const configFiles = [
             'package.json', 'requirements.txt', 'pyproject.toml',
             'Pipfile', 'tsconfig.json', 'pom.xml', 'build.gradle'
@@ -212,7 +194,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             }
         }
 
-        // Current file — prefer the live editor content
         const editor = vscode.window.activeTextEditor;
         if (editor) {
             const content = editor.document.getText();
@@ -230,8 +211,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         return parts.join('\n\n');
     }
 
-    // ── Session memory (VS Code globalState) ──────────────────────────────────
-
     private _getHistoryKey(currentFile: string): string {
         return `pp_history_${currentFile.replace(/[^a-zA-Z0-9]/g, '_')}`;
     }
@@ -243,21 +222,51 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     private async _saveHistory(currentFile: string, history: HistoryEntry[]) {
         const key = this._getHistoryKey(currentFile);
-        const trimmed = history.slice(-MAX_HISTORY);
-        await this._context.globalState.update(key, trimmed);
+        await this._context.globalState.update(key, history.slice(-MAX_HISTORY));
     }
 
     private _buildHistoryContext(currentFile: string): string {
         const history = this._loadHistory(currentFile);
         if (history.length === 0) return '';
-
-        const recent = history.slice(-5);
-        return recent.map(h =>
+        return history.slice(-5).map(h =>
             `[${h.timestamp}]\nDeveloper typed: ${h.prompt}\nRefined output: ${h.refined}`
         ).join('\n\n');
     }
 
-    // ── HTTP request to hosted server ─────────────────────────────────────────
+    private _checkBrowserConnection(channelId: string) {
+        const body = JSON.stringify({ channel_id: channelId, prompt: '__ping__' });
+        const options = {
+            hostname: 'promptpilot-api.onrender.com',
+            path: '/send',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
+            },
+            timeout: 8000
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk: Buffer) => data += chunk.toString());
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(data);
+                    const connected = parsed.status === 'sent';
+                    this._view?.webview.postMessage({ command: 'browserStatus', connected });
+                } catch {
+                    this._view?.webview.postMessage({ command: 'browserStatus', connected: false });
+                }
+            });
+        });
+
+        req.on('error', () => {
+            this._view?.webview.postMessage({ command: 'browserStatus', connected: false });
+        });
+
+        req.write(body);
+        req.end();
+    }
 
     private _postToServer(body: any): Promise<any> {
         return new Promise((resolve, reject) => {
@@ -272,7 +281,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(data)
                 },
-                timeout: 120000 // 2 minutes to handle spindown wake time
+                timeout: 120000
             };
 
             const req = https.request(options, (res) => {
@@ -287,7 +296,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                             resolve(parsed);
                         }
                     } catch (e) {
-                        reject(new Error(`Failed to parse server response`));
+                        reject(new Error('Failed to parse server response'));
                     }
                 });
             });
@@ -302,44 +311,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             req.end();
         });
     }
-
-    // ── Browser connection check ──────────────────────────────────────────────
-
-    private _checkBrowserConnection(channelId: string) {
-        const https = require('https');
-        const body = JSON.stringify({ channel_id: channelId, prompt: '__ping__' });
-        const options = {
-            hostname: 'promptpilot-api.onrender.com',
-            path: '/send',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(body)
-            },
-            timeout: 5000
-        };
-
-        const req = https.request(options, (res: any) => {
-            let data = '';
-            res.on('data', (chunk: Buffer) => data += chunk.toString());
-            res.on('end', () => {
-                try {
-                    const parsed = JSON.parse(data);
-                    const connected = parsed.status === 'sent';
-                    this._view?.webview.postMessage({
-                        command: 'browserStatus',
-                        connected
-                    });
-                } catch { }
-            });
-        });
-
-        req.on('error', () => { });
-        req.write(body);
-        req.end();
-    }
-
-    // ── Main backend call — now uses hosted server ────────────────────────────
 
     private async _runBackend(userPrompt: string, currentFile: string, attachments: any[] = []) {
         const apiKey = await getApiKey(this._context);
@@ -356,64 +327,49 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({ command: 'loading' });
 
         try {
-            // Build context locally — no Python needed
             const context = this._buildContext(currentFile);
             const history = this._buildHistoryContext(currentFile);
 
-            // POST to hosted server
             const response = await this._postToServer({
                 user_prompt: userPrompt,
                 api_key: apiKey,
-                context: context,
-                history: history,
-                attachments: attachments
+                context,
+                history,
+                attachments
             });
 
             const refined = response.refined_prompt;
             if (!refined) throw new Error('Server returned empty response');
 
-            // Display refined prompt
             this._view?.webview.postMessage({
                 command: 'refinedPrompt',
                 prompt: refined
             });
 
-            // Check if browser extension is connected
-            if (apiKey) {
-                const channelId = getChannelId(apiKey);
-                this._checkBrowserConnection(channelId);
-            }
+            // Check browser connection status
+            const channelId = getChannelId(apiKey);
+            this._checkBrowserConnection(channelId);
 
-            // Save to session memory in VS Code storage
+            // Save to session memory
             const existingHistory = this._loadHistory(currentFile);
             existingHistory.push({
                 prompt: userPrompt,
-                refined: refined,
+                refined,
                 timestamp: new Date().toISOString()
             });
             await this._saveHistory(currentFile, existingHistory);
 
         } catch (error: any) {
             const msg = error.message || 'Unknown error';
-
             if (msg.includes('timeout') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up')) {
                 this._view?.webview.postMessage({
                     command: 'error',
                     message: 'Server is waking up — this takes about 30 seconds on the free tier. Please try again shortly.'
                 });
             } else {
-                this._view?.webview.postMessage({
-                    command: 'error',
-                    message: msg
-                });
+                this._view?.webview.postMessage({ command: 'error', message: msg });
             }
         }
-    }
-
-    private async _sendPrompt(text: string) {
-        const apiKey = await getApiKey(this._context) || '';
-        await sendToIDEAgent(text, apiKey);
-        // Clipboard is always set as fallback in sendToIDEAgent
     }
 
     private _getHtml(): string {
@@ -442,6 +398,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             --success-subtle: rgba(16, 185, 129, 0.1);
             --danger: #ef4444;
             --danger-subtle: rgba(239, 68, 68, 0.1);
+            --warning: #f59e0b;
             --radius-sm: 5px;
             --radius: 7px;
         }
@@ -552,6 +509,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             flex: 1;
         }
 
+        /* Browser status row */
         .browser-status-row {
             display: flex;
             align-items: center;
@@ -562,6 +520,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             border-radius: var(--radius);
             font-size: 10px;
             color: var(--text-muted);
+            cursor: default;
         }
 
         .browser-dot {
@@ -570,19 +529,26 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             border-radius: 50%;
             background: var(--text-muted);
             flex-shrink: 0;
+            transition: background 0.2s;
         }
 
         .browser-dot.connected { background: var(--success); }
-        .browser-dot.disconnected { background: var(--danger); }
+        .browser-dot.disconnected { background: var(--warning); }
 
-        #install-browser-link {
+        .browser-status-text { flex: 1; }
+
+        .browser-install-link {
             color: var(--accent);
             font-size: 10px;
-            margin-left: auto;
             text-decoration: none;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: inherit;
         }
 
-        #install-browser-link:hover { text-decoration: underline; }
+        .browser-install-link:hover { text-decoration: underline; }
 
         textarea, input[type="password"], input[type="text"] {
             width: 100%;
@@ -679,8 +645,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             font-size: 14px;
             line-height: 1;
             width: auto;
-            display: flex;
-            align-items: center;
         }
 
         .attachment-remove:hover { color: var(--danger); }
@@ -705,7 +669,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
         .btn-primary { background: var(--accent); color: white; }
         .btn-primary:not(:disabled):hover { background: var(--accent-hover); transform: translateY(-1px); }
-        .btn-primary:not(:disabled):active { transform: translateY(0); }
 
         .btn-ghost {
             background: var(--surface-1);
@@ -721,12 +684,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         .btn-success { background: var(--success); color: white; }
         .btn-success:not(:disabled):hover { background: #059669; transform: translateY(-1px); }
 
-        .btn-danger {
-            background: var(--danger-subtle);
-            color: var(--danger);
-            border: 1px solid rgba(239, 68, 68, 0.2);
+        /* IDE button — distinct teal colour */
+        .btn-ide {
+            background: #0d9488;
+            color: white;
         }
-        .btn-danger:not(:disabled):hover { background: rgba(239, 68, 68, 0.18); }
+        .btn-ide:not(:disabled):hover { background: #0f766e; transform: translateY(-1px); }
 
         .btn-neutral {
             background: var(--surface-2);
@@ -734,6 +697,13 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             border: 1px solid var(--border-strong);
         }
         .btn-neutral:not(:disabled):hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+
+        .btn-danger {
+            background: var(--danger-subtle);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        .btn-danger:not(:disabled):hover { background: rgba(239, 68, 68, 0.18); }
 
         .btn-link {
             background: none;
@@ -750,8 +720,18 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         .btn-link:hover { color: var(--text-secondary); }
 
         .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .btn-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
 
         .divider { height: 1px; background: var(--border); flex-shrink: 0; }
+
+        .section-label-small {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-bottom: 4px;
+        }
 
         .status {
             display: none;
@@ -871,7 +851,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 </div>
                 <div class="step">
                     <div class="step-num">2</div>
-                    <div class="step-text">Click <strong>Get API key</strong> in the top left, then <strong>Create API key</strong></div>
+                    <div class="step-text">Click <strong>Get API key</strong> then <strong>Create API key</strong></div>
                 </div>
                 <div class="step">
                     <div class="step-num">3</div>
@@ -903,6 +883,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     <div id="main-screen">
         <div class="main-body">
 
+            <!-- Current file -->
             <div class="file-row">
                 <div class="file-indicator"></div>
                 <span class="file-label">Working on</span>
@@ -910,17 +891,21 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             </div>
 
             <!-- Browser connection status -->
-            <div id="browser-status-row" class="browser-status-row" style="display:none">
+            <div class="browser-status-row" id="browser-status-row" style="display:none">
                 <div class="browser-dot" id="browser-dot"></div>
                 <span class="browser-status-text" id="browser-status-text">Checking browser...</span>
-                <a href="#" id="install-browser-link" style="display:none">Install</a>
+                <button class="browser-install-link" id="install-browser-btn" style="display:none">
+                    Install extension
+                </button>
             </div>
 
+            <!-- Prompt input -->
             <div>
                 <div class="label">Your Prompt</div>
                 <textarea id="user-prompt" placeholder="Describe what you want... e.g. fix the auth bug, make a DBMS project, add error handling"></textarea>
             </div>
 
+            <!-- Attachments -->
             <div>
                 <div class="label">Attachments <span style="color:var(--text-muted);font-size:9px;text-transform:none;letter-spacing:0">(optional — images, PDFs, Word docs)</span></div>
                 <div class="upload-area" id="upload-area">
@@ -943,6 +928,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 <span id="status-text"></span>
             </div>
 
+            <!-- Refined output -->
             <div id="refined-section">
                 <div class="output-card">
                     <div class="output-card-header">
@@ -954,10 +940,20 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
                 <textarea id="edit-area" placeholder="Edit the refined prompt..."></textarea>
 
-                <button class="btn btn-success" id="accept-btn">Send to Agent</button>
-
+                <!-- Send actions -->
+                <div class="section-label-small">Send to</div>
                 <div class="btn-row">
-                    <button class="btn btn-neutral" id="copy-btn">Copy to Clipboard</button>
+                    <button class="btn btn-success" id="send-browser-btn" title="Send to AI tool open in your browser (Claude, ChatGPT, Gemini, Perplexity)">
+                        Browser Agent
+                    </button>
+                    <button class="btn btn-ide" id="send-ide-btn" title="Send to AI agent inside this IDE (Cursor, Copilot, Antigravity)">
+                        IDE Agent
+                    </button>
+                </div>
+
+                <!-- Secondary actions -->
+                <div class="btn-row">
+                    <button class="btn btn-neutral" id="copy-btn">Copy</button>
                     <button class="btn btn-ghost" id="edit-btn">Edit</button>
                 </div>
 
@@ -984,6 +980,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         vscode.postMessage({ command: 'checkApiKey' });
         vscode.postMessage({ command: 'getCurrentFile' });
 
+        // Setup
         document.getElementById('save-key-btn').addEventListener('click', () => {
             const key = document.getElementById('api-key-input').value.trim();
             if (!key) return;
@@ -998,6 +995,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             vscode.postMessage({ command: 'clearApiKey' });
         });
 
+        // Install browser extension link
+        document.getElementById('install-browser-btn').addEventListener('click', () => {
+            vscode.postMessage({ command: 'openInstallPage' });
+        });
+
+        // File upload
         const fileInput = document.getElementById('file-input');
         const uploadArea = document.getElementById('upload-area');
 
@@ -1008,9 +1011,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             uploadArea.classList.add('drag-over');
         });
 
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('drag-over');
-        });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
 
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
@@ -1061,26 +1062,37 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             renderAttachments();
         }
 
+        // Engineer prompt
         document.getElementById('engineer-btn').addEventListener('click', () => {
             const prompt = document.getElementById('user-prompt').value.trim();
             if (!prompt) { showStatus('Please enter a prompt first.', 'error', false); return; }
             document.getElementById('engineer-btn').disabled = true;
             document.getElementById('refined-section').style.display = 'none';
             showStatus('Engineering your prompt...', 'loading', true);
-            vscode.postMessage({ command: 'engineerPrompt', userPrompt: prompt, currentFile: currentFile, attachments: attachments });
+            vscode.postMessage({ command: 'engineerPrompt', userPrompt: prompt, currentFile, attachments });
         });
 
-        document.getElementById('accept-btn').addEventListener('click', () => {
-            const textToSend = isEditing ? document.getElementById('edit-area').value : refinedPrompt;
-            vscode.postMessage({ command: 'acceptPrompt', refinedPrompt: textToSend });
+        // Send to browser agent only
+        document.getElementById('send-browser-btn').addEventListener('click', () => {
+            const text = isEditing ? document.getElementById('edit-area').value : refinedPrompt;
+            vscode.postMessage({ command: 'sendToBrowser', refinedPrompt: text });
             setTimeout(() => resetAfterSend(), 400);
         });
 
-        document.getElementById('copy-btn').addEventListener('click', () => {
-            const textToSend = isEditing ? document.getElementById('edit-area').value : refinedPrompt;
-            vscode.postMessage({ command: 'copyPrompt', refinedPrompt: textToSend });
+        // Send to IDE agent only
+        document.getElementById('send-ide-btn').addEventListener('click', () => {
+            const text = isEditing ? document.getElementById('edit-area').value : refinedPrompt;
+            vscode.postMessage({ command: 'sendToIDE', refinedPrompt: text });
+            setTimeout(() => resetAfterSend(), 400);
         });
 
+        // Copy
+        document.getElementById('copy-btn').addEventListener('click', () => {
+            const text = isEditing ? document.getElementById('edit-area').value : refinedPrompt;
+            vscode.postMessage({ command: 'copyPrompt', refinedPrompt: text });
+        });
+
+        // Edit
         document.getElementById('edit-btn').addEventListener('click', () => {
             const editArea = document.getElementById('edit-area');
             if (!isEditing) {
@@ -1095,6 +1107,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             }
         });
 
+        // Reject
         document.getElementById('reject-btn').addEventListener('click', () => {
             document.getElementById('refined-section').style.display = 'none';
             document.getElementById('edit-area').style.display = 'none';
@@ -1104,6 +1117,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             hideStatus();
         });
 
+        // Re-index
         document.getElementById('reindex-btn').addEventListener('click', () => {
             vscode.postMessage({ command: 'reindex' });
         });
@@ -1128,6 +1142,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 case 'showMain':
                     document.getElementById('setup-screen').style.display = 'none';
                     document.getElementById('main-screen').style.display = 'flex';
+                    // Check browser connection when main screen shows
+                    vscode.postMessage({ command: 'checkBrowserConnection' });
                     break;
                 case 'currentFile':
                     currentFile = message.file;
@@ -1155,21 +1171,23 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                     const browserRow = document.getElementById('browser-status-row');
                     const browserDot = document.getElementById('browser-dot');
                     const browserText = document.getElementById('browser-status-text');
-                    const installLink = document.getElementById('install-browser-link');
+                    const installBtn = document.getElementById('install-browser-btn');
+                    const sendBrowserBtn = document.getElementById('send-browser-btn');
 
                     browserRow.style.display = 'flex';
 
                     if (message.connected) {
                         browserDot.className = 'browser-dot connected';
                         browserText.textContent = 'Browser extension connected';
-                        installLink.style.display = 'none';
+                        installBtn.style.display = 'none';
+                        sendBrowserBtn.disabled = false;
+                        sendBrowserBtn.title = 'Send to AI tool open in your browser';
                     } else {
                         browserDot.className = 'browser-dot disconnected';
                         browserText.textContent = 'Browser extension not connected';
-                        installLink.style.display = 'block';
-                        installLink.onclick = () => {
-                            vscode.postMessage({ command: 'openInstallPage' });
-                        };
+                        installBtn.style.display = 'block';
+                        sendBrowserBtn.disabled = false;
+                        sendBrowserBtn.title = 'Browser extension not connected — click to install';
                     }
                     break;
             }

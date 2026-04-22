@@ -1,17 +1,20 @@
 {
     "manifest_version": 3,
     "name": "PromptPilot",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Receives engineered prompts from PromptPilot and pastes them into AI tools",
     "permissions": [
         "storage",
         "activeTab",
         "scripting",
-        "alarms"
+        "alarms",
+        "tabs"
     ],
     "host_permissions": [
         "http://localhost:54321/*",
-        "ws://localhost:54321/*"
+        "ws://localhost:54321/*",
+        "https://promptpilot-api.onrender.com/*",
+        "wss://promptpilot-api.onrender.com/*"
     ],
     "background": {
         "service_worker": "background.js"
@@ -27,6 +30,16 @@
             ],
             "js": [
                 "content.js"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "setup.html"
+            ],
+            "matches": [
+                "<all_urls>"
             ]
         }
     ],
