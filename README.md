@@ -212,31 +212,36 @@ relay — the original key is never stored on any server.
 
 ---
 
-## Project Structure
+```text
 
-prompt-engineer/
-├── extension/          # VS Code extension (TypeScript)
+PromptPilot/
+├── extension/                  # VS Code Extension (TypeScript)
 │   ├── src/
-│   │   ├── extension.ts    # Activation, commands, server communication
-│   │   └── panel.ts        # Sidebar webview UI
-│   ├── icon.svg
-│   ├── icon.png
-│   └── package.json
-├── server/             # Hosted FastAPI backend
-│   ├── main.py             # API endpoints + WebSocket channels
-│   ├── requirements.txt
-│   └── Dockerfile
-├── browser-extension/  # Chrome extension
-│   ├── background.js       # WebSocket client, tab messaging
-│   ├── content.js          # Prompt injection into AI sites
-│   ├── setup.html/js       # One-time API key setup page
-│   ├── popup.html/js       # Extension popup
-│   └── manifest.json
-└── backend/            # Local Python tool (for development)
-├── main.py             # Full prompt engine with RAG
-└── indexer.py          # ChromaDB indexer
+│   │   ├── extension.ts       # Handles activation, commands, and server communication
+│   │   └── panel.ts           # Sidebar Webview UI logic
+│   ├── icon.svg               # Extension icon (SVG)
+│   ├── icon.png               # Extension icon (PNG fallback)
+│   └── package.json           # Extension configuration and dependencies
+│
+├── server/                    # Hosted Backend (FastAPI)
+│   ├── main.py               # API endpoints and WebSocket handlers
+│   ├── requirements.txt      # Python dependencies
+│   └── Dockerfile            # Containerization setup
+│
+├── browser-extension/        # Chrome Extension
+│   ├── background.js         # WebSocket client and tab communication
+│   ├── content.js            # Injects prompts into AI platforms
+│   ├── setup.html            # Initial API key setup UI
+│   ├── setup.js              # Logic for setup page
+│   ├── popup.html            # Extension popup UI
+│   ├── popup.js              # Popup interaction logic
+│   └── manifest.json         # Chrome extension configuration
+│
+└── backend/                  # Local Development Backend (Python)
+    ├── main.py              # Core prompt engine with RAG pipeline
+    └── indexer.py           # ChromaDB indexing and embedding pipeline
 
----
+```
 
 ## Troubleshooting
 
