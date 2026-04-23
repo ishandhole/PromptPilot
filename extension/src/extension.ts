@@ -9,6 +9,10 @@ export const BROWSER_EXTENSION_URL = 'https://github.com/ishandhole/PromptPilot/
 export function activate(context: vscode.ExtensionContext) {
 	console.log('PromptPilot extension activated');
 
+	// Wake up the Render server immediately on activation
+	// Free tier spins down after 15min — this ensures it is warm before first use
+	wakeUpServer();
+
 	const sidebarProvider = new SidebarPanel(context.extensionUri, context);
 
 	context.subscriptions.push(
@@ -43,12 +47,39 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
+function wakeUpServer() {
+	const serverUrl = new URL(SERVER_URL);
+
+	const options = {
+		hostname: serverUrl.hostname,
+		path: '/health',
+		method: 'GET',
+		timeout: 30000
+	};
+
+	const req = https.request(options, (res) => {
+		console.log('PromptPilot: Server is awake and ready.');
+	});
+
+	req.on('error', () => {
+		// Server is waking up — this is expected on cold start
+		// The sidebar will handle the delay gracefully
+		console.log('PromptPilot: Server waking up in background...');
+	});
+
+	req.on('timeout', () => {
+		req.destroy();
+		console.log('PromptPilot: Server wake up timed out — will retry on first prompt.');
+	});
+
+	req.end();
+}
+
 export function getChannelId(apiKey: string): string {
 	return crypto.createHash('sha256').update(apiKey).digest('hex');
 }
 
 export async function sendToIDEOnly(text: string): Promise<boolean> {
-	// Only sends to IDE agent — never to browser
 	await vscode.env.clipboard.writeText(text);
 
 	try {
@@ -73,7 +104,6 @@ export async function sendToIDEOnly(text: string): Promise<boolean> {
 		return true;
 	} catch { }
 
-	// No IDE agent found
 	vscode.window.showWarningMessage(
 		'PromptPilot: No IDE agent found. Prompt copied to clipboard.'
 	);
@@ -81,7 +111,6 @@ export async function sendToIDEOnly(text: string): Promise<boolean> {
 }
 
 export async function sendToBrowserOnly(text: string, apiKey: string): Promise<boolean> {
-	// Only sends to browser extension — never to IDE
 	await vscode.env.clipboard.writeText(text);
 
 	if (!apiKey) {
@@ -99,7 +128,6 @@ export async function sendToBrowserOnly(text: string, apiKey: string): Promise<b
 		return true;
 	}
 
-	// Browser extension not connected
 	const action = await vscode.window.showWarningMessage(
 		'PromptPilot: Browser extension not connected. Install it to auto-paste into Claude, ChatGPT, and Gemini.',
 		'Install Browser Extension',

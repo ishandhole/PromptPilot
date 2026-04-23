@@ -2,7 +2,7 @@
   "name": "promptpilot-ishan",
   "displayName": "PromptPilot-IDE",
   "description": "AI prompt engineering layer for IDE coding agents — works across VS Code, Cursor, Windsurf and all Chromium browsers",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "ishandhole",
   "icon": "icon.png",
   "repository": {
