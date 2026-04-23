@@ -190,27 +190,45 @@ and applies the right strategy:
 
 ---
 
-## Architecture
+## Architecture Diagram
 
-VS Code Extension (TypeScript)
-├── Reads project files locally
-├── Sends prompt + context to hosted API
-└── Receives refined prompt
-Hosted API (FastAPI on Render)
-├── Classifies prompt type
-├── Calls Gemini using user's API key
-├── Returns refined prompt
-└── WebSocket server for browser relay
-Browser Extension (Chrome MV3)
-├── Connects to hosted WebSocket channel
-├── Receives refined prompts
-└── Injects into Claude / ChatGPT / Gemini / Perplexity
+```mermaid
+flowchart LR
+
+    subgraph VSCode["VS Code Extension (TypeScript)"]
+        A1["Reads project files locally"]
+        A2["Sends prompt + context to API"]
+        A3["Receives refined prompt"]
+        A1 --> A2 --> A3
+    end
+
+    subgraph API["Hosted API (FastAPI on Render)"]
+        B1["Classifies prompt type"]
+        B2["Calls Gemini (user API key)"]
+        B3["Returns refined prompt"]
+        B4["WebSocket server"]
+        B1 --> B2 --> B3
+        B3 --> B4
+    end
+
+    subgraph Browser["Browser Extension (Chrome MV3)"]
+        C1["Connects to WebSocket"]
+        C2["Receives refined prompts"]
+        C3["Injects into AI tools"]
+        C1 --> C2 --> C3
+    end
+
+    A2 --> B1
+    B4 --> C1
+```
 
 **Privacy:** Your Gemini API key is stored locally and only sent to 
 the Gemini API. It is hashed to create a channel ID for the WebSocket 
 relay — the original key is never stored on any server.
 
 ---
+
+## File Structure
 
 ```text
 
